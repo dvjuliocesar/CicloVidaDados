@@ -2,16 +2,22 @@
 import os
 from pathlib import Path
 from dotenv import load_dotenv
-import psycopg2
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import URL
 
 # Carrega variáveis de ambiente
-load_dotenv(override=False)
+load_dotenv()
 
-# Configuração do banco de dados
-DB_CONFIG = {
-    'host': os.getenv('DB_HOST', 'postgresql'),
-    'port': os.getenv('DB_PORT', '5432'),
-    'database': os.getenv('DB_NAME', ''),
-    'user': os.getenv('DB_USER', ''),
-    'password': os.getenv('DB_PASSWORD', '')
-}
+DATA_DIR = Path(os.getenv("DATA_DIR", "data/raw"))
+DDL_PATH = Path("ddl_olist.sql")   # opcional: DDL completo aqui
+
+url = URL.create(
+    "postgresql+psycopg2",
+    username=os.getenv("DB_USER", "postgres"),
+    password=os.getenv("DB_PASSWORD", ""),
+    host=os.getenv("DB_HOST", "localhost"),
+    port=int(os.getenv("DB_PORT", "5433")),
+    database=os.getenv("DB_NAME", "olist"),
+)
+engine = create_engine(url, pool_pre_ping=True)
+
