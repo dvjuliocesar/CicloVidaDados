@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL
 
-# ----------------- CONFIG -----------------
+# Config
 load_dotenv()
 
 DATA_DIR = Path(os.getenv("DATA_DIR", "data/raw"))
@@ -39,7 +39,6 @@ FILES = {
   "olist_stage.raw_category_translation": "product_category_name_translation.csv",
 }
 
-# ------------- Helpers --------------------
 def ensure_database():
     """
     Cria o banco DB_NAME se não existir.
@@ -85,7 +84,7 @@ def copy_from_csv(table: str, csv_path: Path):
             raw_conn.rollback()
             raise
 
-# ------------- ETL: STAGING ---------------
+# ETL: STAGING 
 def load_staging():
     # 1) Garante que o DB existe
     ensure_database()
@@ -116,7 +115,7 @@ def load_staging():
 
     print("[STAGING] COPY concluído.")
 
-# ------------- ETL: DW (transform + load) -------------
+# ETL: DW (transform + load)
 def upsert_dim_date():
     exec_sql("""
     WITH d AS (
