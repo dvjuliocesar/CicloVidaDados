@@ -1,26 +1,33 @@
 # Bibliotecas
 import os
 from pathlib import Path
+from contextlib import closing
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL
 
-# Configurações
+# ----------------- CONFIG -----------------
 load_dotenv()
 
 DATA_DIR = Path(os.getenv("DATA_DIR", "data/raw"))
-DDL_PATH = Path("ddl_olist.sql")   # opcional: DDL completo aqui
+DDL_PATH = Path("ddl_olist.sql")   # DDL opcional (SEM CREATE DATABASE!)
 
-url = URL.create(
-    "postgresql+psycopg2",
-    username=os.getenv("DB_USER", "postgres"),
-    password=os.getenv("DB_PASSWORD", ""),
-    host=os.getenv("DB_HOST", "localhost"),
-    port=int(os.getenv("DB_PORT", "5433")),
-    database=os.getenv("DB_NAME", "olist"),
-)
-engine = create_engine(url, pool_pre_ping=True)
+DB_HOST = os.getenv("DB_HOST", "localhost")
+DB_PORT = int(os.getenv("DB_PORT", "5432"))
+DB_NAME = os.getenv("DB_NAME", "olist")
+DB_USER = os.getenv("DB_USER", "postgres")
+DB_PASS = os.getenv("DB_PASSWORD", "")
 
+# URL de administração (conectando no DB 'postgres') e do banco alvo (DB_NAME)
+url_admin  = URL.create("postgresql+psycopg2", username=DB_USER, password=DB_PASS,
+                        host=DB_HOST, port=DB_PORT, database="postgres")
+url_target = URL.create("postgresql+psycopg2", username=DB_USER, password=DB_PASS,
+                        host=DB_HOST, port=DB_PORT, database=DB_NAME)
+
+# Engine principal (somente será usada depois de garantir que o DB existe)
+engine = create_engine(url_target, pool_pre_ping=True)
+
+# Arquivos esperados (nome do arquivo -> tabela de staging)
 FILES = {
   "olist_stage.raw_customers": "olist_customers_dataset.csv",
   "olist_stage.raw_orders": "olist_orders_dataset.csv",
@@ -32,40 +39,84 @@ FILES = {
   "olist_stage.raw_category_translation": "product_category_name_translation.csv",
 }
 
+# ------------- Helpers --------------------
+def ensure_database():
+    """
+    Cria o banco DB_NAME se não existir.
+    Executa em AUTOCOMMIT e conectado ao DB 'postgres' para evitar transações.
+    """
+    admin_engine = create_engine(url_admin, isolation_level="AUTOCOMMIT", pool_pre_ping=True)
+    try:
+        with admin_engine.connect() as conn:
+            exists = conn.execute(text("SELECT 1 FROM pg_database WHERE datname = :n"), {"n": DB_NAME}).scalar()
+            if not exists:
+                conn.execute(text(f'CREATE DATABASE "{DB_NAME}"'))
+    finally:
+        admin_engine.dispose()
+
 def exec_sql(sql: str):
+    """
+    Executa SQL arbitrário (SEM CREATE DATABASE) no banco alvo.
+    Aceita múltiplas sentenças separadas por ';'.
+    """
+    if not sql or not sql.strip():
+        return
     with engine.begin() as conn:
         conn.execute(text(sql))
 
 def copy_from_csv(table: str, csv_path: Path):
+    """
+    Faz COPY FROM STDIN (server-side) do CSV para a tabela 'table'.
+    Usa closing() pois raw_connection() não é context manager no SQLAlchemy 2.x.
+    """
     if not csv_path.exists():
         raise FileNotFoundError(f"CSV não encontrado: {csv_path}")
-    # COPY via conexão "raw" do driver psycopg2 (rápido e confiável)
-    with engine.raw_connection() as raw_conn:
-        with raw_conn.cursor() as cur, open(csv_path, "r", encoding="utf-8") as f:
+
+    with closing(engine.raw_connection()) as raw_conn, \
+         closing(raw_conn.cursor()) as cur, \
+         open(csv_path, "r", encoding="utf-8") as f:
+        try:
             cur.copy_expert(
                 f"COPY {table} FROM STDIN WITH (FORMAT CSV, HEADER true)",
                 f
             )
-        raw_conn.commit()
+            raw_conn.commit()
+        except Exception:
+            raw_conn.rollback()
+            raise
 
-# ETL: STAGING
+# ------------- ETL: STAGING ---------------
 def load_staging():
-    # (opcional) aplicar DDL
+    # 1) Garante que o DB existe
+    ensure_database()
+
+    # 2) (Opcional) aplicar DDL (SEM CREATE DATABASE)
     if DDL_PATH.exists():
         ddl = DDL_PATH.read_text(encoding="utf-8")
+
+        # Segurança: remove linhas com CREATE DATABASE, caso alguém esqueça no arquivo
+        safe_lines = []
+        for ln in ddl.splitlines():
+            if ln.strip().upper().startswith("CREATE DATABASE"):
+                continue
+            safe_lines.append(ln)
+        ddl = "\n".join(safe_lines)
+
         exec_sql(ddl)
 
-    # Limpar staging
+    # 3) TRUNCATE staging (idempotente)
     with engine.begin() as conn:
         for tbl in FILES.keys():
             conn.execute(text(f"TRUNCATE {tbl}"))
 
-    # COPY cada CSV
+    # 4) COPY de cada CSV para o staging
     for table, fname in FILES.items():
-        copy_from_csv(table, DATA_DIR / fname)
+        path = DATA_DIR / fname
+        copy_from_csv(table, path)
+
     print("[STAGING] COPY concluído.")
 
-# ETL: DW (transform + load)
+# ------------- ETL: DW (transform + load) -------------
 def upsert_dim_date():
     exec_sql("""
     WITH d AS (
@@ -184,14 +235,18 @@ def insert_fact_payments():
           payment_value = EXCLUDED.payment_value;
     """)
 
-def run():
-    load_staging()
+def transform_load_dw():
     upsert_dim_date()
     upsert_dim_customer()
     upsert_dim_seller()
     upsert_dim_product()
     insert_fact_items()
     insert_fact_payments()
+    print("[DW] Dimensões e fatos populados.")
+
+def run():
+    load_staging()
+    transform_load_dw()
     print("[OK] Pipeline concluído.")
 
 if __name__ == "__main__":
