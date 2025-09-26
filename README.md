@@ -236,3 +236,59 @@ ORDER BY receita DESC;
 - **Conversões de tipos e normalização de datas** no SQL (lado do banco).
 
 ---
+
+# Aula 02 - Exercício 2 — Monitoramento de Qualidade de Dados e Governança (Olist)
+
+Este pacote implementa **monitoramento de 5+ dimensões de Qualidade de Dados** sobre os dados integrados do Exercício 1 (DW Olist).
+
+## Como rodar
+1. Garanta que o DW do Exercício 1 esteja criado e populado.
+2. Configure o `.env` (mesmas chaves do Exercício 1).
+3. Instale dependências:
+   ```bash
+   pip install SQLAlchemy psycopg2-binary python-dotenv pandas matplotlib
+   ```
+4. Execute:
+   ```bash
+   python dq_monitor_olist.py
+   ```
+5. Saídas:
+   - CSVs em `monitoring/csv/*.csv`
+   - Gráficos em `monitoring/plots/*.png`
+
+## Dimensões monitoradas e Regras
+
+1. **Completeness (Completude)** — % de não-nulos em colunas críticas:
+   - `fact_order_item.price`, `fact_order_item.freight_value`, `fact_order_item.purchase_date_id`,
+   - `dim_customer.city`, `dim_customer.state`,
+   - `dim_product.category_name`.
+
+2. **Uniqueness (Unicidade)** — duplicatas em chaves naturais do *staging*:
+   - `raw_orders.order_id`, `raw_customers.customer_id`, `raw_sellers.seller_id`, `raw_products.product_id`,
+   - (`order_id`, `order_item_id`), (`order_id`, `payment_sequential`).
+
+3. **Validity (Validade)** — regras de domínio:
+   - `price > 0`, `freight_value >= 0`,
+   - `seller_state` e `customer_state` ∈ {UF do Brasil},
+   - dimensões físicas do produto > 0.
+
+4. **Consistency (Consistência)** — regras de negócio cruzando tabelas:
+   - Se `order_status='delivered'` ⇒ `order_delivered_customer_date` não nula e ≥ `order_purchase_timestamp`.
+   - `shipping_limit_date` ≥ `order_purchase_timestamp`.
+   - **Conciliação**: `Σ payments` ≈ `Σ (price + freight)` por pedido (tolerância R$ 1,00).
+
+5. **Timeliness (Tempestividade/Pontualidade)** — aderência temporal:
+   - Histograma do **lead time** (entrega − compra).
+   - **On-time rate**: % de entregas com `delivered_customer_date ≤ estimated_delivery_date`.
+
+## Governança, Ética e Privacidade
+Veja `governanca_etica_checklist.md` para o checklist de LGPD, segurança e uso responsável de IA.
+
+## Prints/Recomendações para o GitHub
+Inclua no repositório:
+- `monitoring/plots/*.png` (prints dos gráficos).
+- `monitoring/csv/*.csv` (tabelas de métricas).
+- `README_exercicio2.md` (este arquivo) com comentários sobre resultados.
+- Referências ao Exercício 1 (estrutura e scripts de carga).
+
+> Dica: crie uma *issue* ou seção de *findings* com ações corretivas para cada métrica abaixo de alvo (ex.: Completeness < 98%).
