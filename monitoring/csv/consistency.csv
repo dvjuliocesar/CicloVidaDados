@@ -1,0 +1,5 @@
+rule,pass_pct
+delivered_after_purchase,99.99
+delivered_has_date,99.99
+shipping_limit_after_purchase,100.0
+sum(payments)≈sum(items),99.75

@@ -1,0 +1,6 @@
+rule,pass_pct
+customer_state in UF,100.0
+dims>0 (produto),99.99
+freight>=0,100.0
+price>0,100.0
+seller_state in UF,100.0

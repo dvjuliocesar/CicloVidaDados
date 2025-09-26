@@ -1,0 +1,7 @@
+feature,completeness_pct
+dim_customer.city,100.0
+dim_customer.state,100.0
+dim_product.category_name,98.15
+fact_order_item.freight_value,100.0
+fact_order_item.price,100.0
+fact_order_item.purchase_date_id,100.0

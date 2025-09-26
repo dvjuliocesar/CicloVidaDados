@@ -1,0 +1,7 @@
+entity,duplicates
+raw_sellers.seller_id,0
+raw_products.product_id,0
+raw_customers.customer_id,0
+raw_orders.order_id,0
+"raw_order_items(order_id,order_item_id)",0
+"raw_payments(order_id,payment_sequential)",0
